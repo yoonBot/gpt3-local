@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.DS_Store
+
+# generated/downloaded data and tokenized shards (regenerate via data/prepare_*.py)
+data/shakespeare/
+data/openwebtext/
+
+# training outputs
+out/
+*.pt
