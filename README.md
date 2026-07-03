@@ -1,5 +1,7 @@
 # gpt3-local
 
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/yoonBot/gpt3-local/blob/main/gpt3_local_colab.ipynb)
+
 A from-scratch, locally trainable implementation of the GPT-3 architecture,
 built by extending the public GPT-2 transformer design with the changes
 described in the GPT-3 paper (Brown et al., 2020):
@@ -23,6 +25,15 @@ way to reproduce OpenAI's model.
 ```bash
 pip install -r requirements.txt
 ```
+
+### No local GPU? Run on Colab
+
+Click the badge above, or open [gpt3_local_colab.ipynb](gpt3_local_colab.ipynb) directly in
+[Colab](https://colab.research.google.com/github/yoonBot/gpt3-local/blob/main/gpt3_local_colab.ipynb).
+It clones this repo, installs dependencies, and walks through data prep, training, sampling, RAG,
+and calculator tool-use, cell by cell. Free-tier T4 GPUs (16GB) comfortably fit `gpt3-small`; mount
+Google Drive (a cell in the notebook does this) so checkpoints survive a session disconnect and you
+can `--resume` — Colab wipes local disk and disconnects after ~90 min idle / ~12h max.
 
 ## 1. Prepare data
 
