@@ -2,10 +2,14 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# generated/downloaded data and tokenized shards (regenerate via data/prepare_*.py)
+# generated/downloaded data and tokenized shards (regenerate via data/prepare_*.py, tools/prepare_calc_data.py)
 data/shakespeare/
 data/openwebtext/
+data/calc/
 
 # training outputs
-out/
+out*/
 *.pt
+
+# rag indices (regenerate via rag/build_index.py)
+rag_index/

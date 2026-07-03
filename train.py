@@ -22,7 +22,7 @@ import torch
 from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from configs import get_config, VRAM_GUIDANCE_GB, GPT3_CONFIGS
+from configs import get_config, VRAM_GUIDANCE_GB, GPT3_CONFIGS, GPT3Config
 from model import GPT3
 
 
@@ -32,6 +32,7 @@ def get_args():
     p.add_argument("--data_dir", type=str, required=True, help="dir with train.bin/val.bin")
     p.add_argument("--out_dir", type=str, default="out")
     p.add_argument("--block_size", type=int, default=1024, help="context length (<= 2048 in the paper)")
+    p.add_argument("--vocab_size", type=int, default=None, help="override vocab size, e.g. 50259 for tools/tokenizer.py")
 
     p.add_argument("--batch_size", type=int, default=8, help="micro-batch size per GPU")
     p.add_argument("--grad_accum_steps", type=int, default=8, help="gradient accumulation steps")
@@ -57,7 +58,8 @@ def get_args():
     p.add_argument("--dtype", type=str, default="bfloat16", choices=["float32", "bfloat16", "float16"])
     p.add_argument("--compile", action="store_true", help="torch.compile the model (PyTorch 2.x)")
 
-    p.add_argument("--resume", action="store_true", help="resume from out_dir/ckpt.pt")
+    p.add_argument("--resume", action="store_true", help="resume an interrupted run (out_dir/ckpt.pt), keeps optimizer state/iter count")
+    p.add_argument("--init_from_ckpt", type=str, default=None, help="fine-tune: load model weights only from this checkpoint, fresh optimizer/schedule/iter count")
     p.add_argument("--seed", type=int, default=1337)
     return p.parse_args()
 
@@ -133,15 +135,50 @@ def main():
     ctx = nullcontext() if device_type == "cpu" else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
     scaler = torch.amp.GradScaler(enabled=(args.dtype == "float16"))
 
-    cfg = get_config(
-        args.config,
-        block_size=args.block_size,
-        dropout=args.dropout,
-        use_sparse_attention=not args.no_sparse_attention,
-        local_attn_window=args.local_attn_window,
-    )
+    start_iter = 0
+    best_val_loss = float("inf")
+    ckpt_path = os.path.join(args.out_dir, "ckpt.pt")
+    pending_optimizer_state = None
 
-    model = GPT3(cfg)
+    if args.resume and os.path.exists(ckpt_path):
+        # continuing an interrupted run: reuse its exact config, optimizer
+        # state, and iteration count.
+        checkpoint = torch.load(ckpt_path, map_location=device, weights_only=True)
+        cfg = GPT3Config(**checkpoint["config"])
+        model = GPT3(cfg)
+        model.load_state_dict(checkpoint["model"])
+        pending_optimizer_state = checkpoint["optimizer"]
+        start_iter = checkpoint["iter"] + 1
+        best_val_loss = checkpoint["best_val_loss"]
+        if master_process:
+            print(f"resumed from {ckpt_path} at iter {start_iter}")
+    elif args.init_from_ckpt:
+        # fine-tuning from another checkpoint's weights (e.g. after
+        # tools/resize_embeddings.py): fresh optimizer/schedule/iter count,
+        # config comes from that checkpoint so shapes match the loaded weights.
+        checkpoint = torch.load(args.init_from_ckpt, map_location=device, weights_only=True)
+        cfg = GPT3Config(**checkpoint["config"])
+        model = GPT3(cfg)
+        model.load_state_dict(checkpoint["model"])
+        if master_process:
+            print(f"initialized weights from {args.init_from_ckpt} (fresh optimizer/iter)")
+    else:
+        cfg_overrides = dict(
+            block_size=args.block_size,
+            dropout=args.dropout,
+            use_sparse_attention=not args.no_sparse_attention,
+            local_attn_window=args.local_attn_window,
+        )
+        if args.vocab_size is not None:
+            cfg_overrides["vocab_size"] = args.vocab_size
+        cfg = get_config(args.config, **cfg_overrides)
+        model = GPT3(cfg)
+
+    # cfg.block_size may come from a resumed/init checkpoint rather than
+    # this invocation's --block_size flag; keep get_batch/estimate_loss (which
+    # read args.block_size) consistent with the model actually being trained.
+    args.block_size = cfg.block_size
+
     if args.gradient_checkpointing:
         model.enable_gradient_checkpointing()
     model.to(device)
@@ -152,18 +189,8 @@ def main():
     optimizer = model.configure_optimizers(
         args.weight_decay, args.lr, (args.beta1, args.beta2), device_type
     )
-
-    start_iter = 0
-    best_val_loss = float("inf")
-    ckpt_path = os.path.join(args.out_dir, "ckpt.pt")
-    if args.resume and os.path.exists(ckpt_path):
-        checkpoint = torch.load(ckpt_path, map_location=device, weights_only=True)
-        model.load_state_dict(checkpoint["model"])
-        optimizer.load_state_dict(checkpoint["optimizer"])
-        start_iter = checkpoint["iter"] + 1
-        best_val_loss = checkpoint["best_val_loss"]
-        if master_process:
-            print(f"resumed from {ckpt_path} at iter {start_iter}")
+    if pending_optimizer_state is not None:
+        optimizer.load_state_dict(pending_optimizer_state)
 
     if args.compile:
         model = torch.compile(model)

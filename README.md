@@ -86,6 +86,66 @@ step but higher memory at long context).
 python sample.py --ckpt out/ckpt.pt --prompt "The meaning of life is" --max_new_tokens 200
 ```
 
+## 4. Retrieval-augmented generation (RAG)
+
+The model's weights only ever store statistical patterns from next-token
+prediction — they don't store a document store. RAG keeps your knowledge
+in a separate, searchable index and injects the relevant text into the
+prompt at inference time; the model's weights are untouched, no retraining
+needed.
+
+```bash
+# 1. index a directory of .txt files
+python rag/build_index.py --docs_dir mydocs/ --out_dir rag_index/
+
+# 2. ask a question against that index
+python rag/generate_with_rag.py --ckpt out/ckpt.pt --index_dir rag_index/ \
+    --query "Where is the Eiffel Tower?"
+```
+
+`build_index.py` chunks each `.txt` file (`--chunk_tokens`, default 256, with
+`--overlap_tokens` overlap) and embeds each chunk with a small sentence
+embedding model (`all-MiniLM-L6-v2` by default). `generate_with_rag.py`
+embeds your query, does a cosine-similarity nearest-neighbor search over
+the index (plain numpy — fine for up to roughly hundreds of thousands of
+chunks, no FAISS dependency needed at this scale), and feeds the top
+matches into the model's context window ahead of the question.
+
+## 5. Tool-use for math
+
+Transformers don't have a calculator built into their weights — arithmetic
+"ability" is pattern-matched from training examples and degrades fast on
+larger numbers. Instead of hoping the model gets math right, you can teach
+it to *delegate*: emit `<calc>expr</calc>` around an expression it wants
+computed, and a wrapper around generation intercepts that span, evaluates
+it for real (no `eval()`/`exec()` — `tools/calculator.py` walks a Python AST
+with a whitelist of numeric operators only), and splices the true result
+back into the output.
+
+This needs a model whose vocab includes the `<calc>`/`</calc>` tokens
+(`vocab_size=50259` vs. the base 50257) and that's seen examples of the
+behavior during training:
+
+```bash
+# fine-tune from scratch with the extended vocab:
+python tools/prepare_calc_data.py --n_examples 200000
+python train.py --config gpt3-small --vocab_size 50259 --data_dir data/calc \
+    --out_dir out_calc --max_iters 5000
+
+# OR adapt a checkpoint you already pretrained on general text:
+python tools/resize_embeddings.py --in_ckpt out/ckpt.pt --out_ckpt out/ckpt_tool.pt
+python train.py --config gpt3-small --vocab_size 50259 --data_dir data/calc \
+    --out_dir out_calc --init_from_ckpt out/ckpt_tool.pt --max_iters 5000
+
+# generate with the calculator wired in:
+python tools/generate_with_calc.py --ckpt out_calc/ckpt.pt \
+    --prompt $'Q: What is 47 + 89?\nA:'
+```
+
+`--init_from_ckpt` loads model weights only (fresh optimizer/iter count) —
+use it for fine-tuning from an existing checkpoint, as opposed to `--resume`
+which continues an interrupted run of the *same* training job.
+
 ## Files
 
 - `configs.py` — `GPT3Config` dataclass and the official GPT-3 size table
@@ -93,7 +153,15 @@ python sample.py --ckpt out/ckpt.pt --prompt "The meaning of life is" --max_new_
   MLP, blocks, and the full `GPT3` model with weight init, optimizer
   grouping, and a `generate()` method (top-k / top-p sampling)
 - `train.py` — training loop: AMP mixed precision, gradient accumulation,
-  gradient checkpointing, cosine LR schedule with warmup, DDP, checkpointing
+  gradient checkpointing, cosine LR schedule with warmup, DDP, checkpointing,
+  resume, and fine-tuning from another checkpoint (`--init_from_ckpt`)
 - `sample.py` — load a checkpoint and generate text
 - `data/prepare_shakespeare.py` — tiny smoke-test dataset
 - `data/prepare_openwebtext.py` — full-scale open pretraining corpus
+- `rag/chunk.py`, `rag/build_index.py`, `rag/retriever.py`,
+  `rag/generate_with_rag.py` — retrieval-augmented generation
+- `tools/tokenizer.py` — GPT-2 BPE extended with `<calc>`/`</calc>` special tokens
+- `tools/calculator.py` — safe (no `eval()`) arithmetic expression evaluator
+- `tools/prepare_calc_data.py` — synthetic arithmetic fine-tuning data generator
+- `tools/resize_embeddings.py` — adapt a checkpoint's vocab to add the calc tokens
+- `tools/generate_with_calc.py` — generation loop that intercepts `<calc>` spans
