@@ -21,9 +21,11 @@ import numpy as np
 import torch
 from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
+from tqdm.auto import tqdm
 
 from configs import get_config, VRAM_GUIDANCE_GB, GPT3_CONFIGS, GPT3Config
 from model import GPT3
+from plotting import LossPlotter
 
 
 def get_args():
@@ -57,6 +59,9 @@ def get_args():
     p.add_argument("--gradient_checkpointing", action="store_true", help="trade compute for memory")
     p.add_argument("--dtype", type=str, default="bfloat16", choices=["float32", "bfloat16", "float16"])
     p.add_argument("--compile", action="store_true", help="torch.compile the model (PyTorch 2.x)")
+
+    p.add_argument("--no_plot", action="store_true", help="disable the live/saved loss-curve plot")
+    p.add_argument("--plot_interval", type=int, default=None, help="redraw the loss plot every N iters (default: same as --log_interval)")
 
     p.add_argument("--resume", action="store_true", help="resume an interrupted run (out_dir/ckpt.pt), keeps optimizer state/iter count")
     p.add_argument("--init_from_ckpt", type=str, default=None, help="fine-tune: load model weights only from this checkpoint, fresh optimizer/schedule/iter count")
@@ -200,16 +205,25 @@ def main():
         model = DDP(model, device_ids=[ddp_local_rank])
         raw_model = model.module
 
+    plot_interval = args.plot_interval or args.log_interval
+    plotter = LossPlotter(args.out_dir) if (master_process and not args.no_plot) else None
+
     x, y = get_batch(args.data_dir, "train", args.block_size, args.batch_size, device)
     t0 = time.time()
-    for it in range(start_iter, args.max_iters):
+    pbar = tqdm(
+        range(start_iter, args.max_iters), initial=start_iter, total=args.max_iters,
+        disable=not master_process, desc="training", unit="it",
+    )
+    for it in pbar:
         lr = get_lr(it, args)
         for group in optimizer.param_groups:
             group["lr"] = lr
 
         if it % args.eval_interval == 0 and master_process:
             losses = estimate_loss(model, args, device, ctx)
-            print(f"iter {it}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+            pbar.write(f"iter {it}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+            if plotter is not None:
+                plotter.log_val(it, losses["val"])
             if losses["val"] < best_val_loss:
                 best_val_loss = losses["val"]
                 torch.save({
@@ -219,7 +233,7 @@ def main():
                     "best_val_loss": best_val_loss,
                     "config": dataclasses.asdict(cfg),
                 }, ckpt_path)
-                print(f"saved checkpoint to {ckpt_path}")
+                pbar.write(f"saved checkpoint to {ckpt_path}")
 
         for micro_step in range(args.grad_accum_steps):
             if ddp:
@@ -237,11 +251,23 @@ def main():
         scaler.update()
         optimizer.zero_grad(set_to_none=True)
 
+        loss_value = loss.item() * args.grad_accum_steps
+        if master_process:
+            pbar.set_postfix(loss=f"{loss_value:.4f}", lr=f"{lr:.2e}")
+            if plotter is not None:
+                plotter.log_train(it, loss_value)
+                if it % plot_interval == 0:
+                    plotter.redraw()
+
         if it % args.log_interval == 0 and master_process:
             t1 = time.time()
             dt = t1 - t0
             t0 = t1
-            print(f"iter {it}: loss {loss.item() * args.grad_accum_steps:.4f}, lr {lr:.2e}, {dt*1000/args.log_interval:.1f}ms/iter")
+            pbar.write(f"iter {it}: loss {loss_value:.4f}, lr {lr:.2e}, {dt*1000/args.log_interval:.1f}ms/iter")
+
+    if plotter is not None:
+        plotter.redraw()
+        plotter.close()
 
     if ddp:
         destroy_process_group()

@@ -3,6 +3,8 @@ numpy
 tiktoken
 datasets
 tqdm
+matplotlib
+ipython
 
 # for rag/ (retrieval augmentation)
 sentence-transformers

@@ -91,6 +91,22 @@ Key flags for fitting bigger configs into limited VRAM:
 every layer dense full attention (closer to plain GPT-2, simpler/faster per
 step but higher memory at long context).
 
+### Progress bar and live loss plot
+
+Training shows a `tqdm` progress bar (current iter, loss, lr, it/s) and tracks a
+train/val loss line plot (`plotting.py`), redrawn every `--plot_interval` iters
+(default: same as `--log_interval`). Where the plot renders depends on how you
+run it:
+- **In a notebook** (Colab, Jupyter), if `train.py` is imported and run
+  in-process (`import train; train.main()` — see `gpt3_local_colab.ipynb`),
+  the chart updates live, in place, in the cell output.
+- **As a plain script** (`python train.py ...`, including via `!python train.py`
+  in a notebook), there's no notebook frontend to draw into, so it instead
+  (re)writes `{out_dir}/loss_curve.png` on every update — open that file to
+  watch progress.
+
+Pass `--no_plot` to skip this entirely.
+
 ## 3. Sample / generate text
 
 ```bash
@@ -165,7 +181,10 @@ which continues an interrupted run of the *same* training job.
   grouping, and a `generate()` method (top-k / top-p sampling)
 - `train.py` — training loop: AMP mixed precision, gradient accumulation,
   gradient checkpointing, cosine LR schedule with warmup, DDP, checkpointing,
-  resume, and fine-tuning from another checkpoint (`--init_from_ckpt`)
+  resume, fine-tuning from another checkpoint (`--init_from_ckpt`), a `tqdm`
+  progress bar, and a live/saved loss-curve plot
+- `plotting.py` — the loss-curve plotter (live inline in a notebook, saved
+  PNG otherwise)
 - `sample.py` — load a checkpoint and generate text
 - `data/prepare_shakespeare.py` — tiny smoke-test dataset
 - `data/prepare_openwebtext.py` — full-scale open pretraining corpus
