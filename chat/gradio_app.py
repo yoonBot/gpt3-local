@@ -23,7 +23,7 @@ from chat.format import format_prompt
 from configs import GPT3Config
 from model import GPT3
 from tools.generate_with_calc import generate_with_tools
-from tools.tokenizer import END_TURN, get_extended_tokenizer
+from tools.tokenizer import END_TURN, check_vocab_or_raise, get_extended_tokenizer
 
 
 def get_args():
@@ -66,12 +66,7 @@ def main():
     model.eval()
 
     enc = get_extended_tokenizer()
-    if cfg.vocab_size != enc.n_vocab:
-        raise ValueError(
-            f"checkpoint vocab_size={cfg.vocab_size} doesn't match the extended "
-            f"tokenizer's vocab_size={enc.n_vocab} -- was this checkpoint fine-tuned "
-            f"with chat/prepare_chat_*.py + tools/resize_embeddings.py?"
-        )
+    check_vocab_or_raise(cfg.vocab_size, args.ckpt)
     end_id = enc.encode(END_TURN, allowed_special="all")[0]
 
     retriever = None

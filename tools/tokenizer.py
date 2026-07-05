@@ -50,3 +50,35 @@ def get_extended_tokenizer() -> tiktoken.Encoding:
         mergeable_ranks=base._mergeable_ranks,
         special_tokens=special_tokens,
     )
+
+
+def check_vocab_or_raise(ckpt_vocab_size: int, ckpt_path: str) -> None:
+    """New special tokens can be (and have been) added to this tokenizer
+    over time -- e.g. the chat turn tokens were added after the calculator
+    tokens, bumping VOCAB_SIZE from 50259 to 50262. A checkpoint saved
+    before such a bump still has its old, smaller vocab_size baked into its
+    config, which then mismatches a freshly pulled copy of this repo. That
+    isn't a broken checkpoint, just a stale one -- resize_embeddings.py
+    already supports incrementally growing any vocab_size up to the
+    current VOCAB_SIZE, since new tokens are always appended at the end
+    rather than inserted in the middle (so nothing already learned shifts
+    position). Give a specific fix instead of a bare mismatch error.
+    """
+    if ckpt_vocab_size == VOCAB_SIZE:
+        return
+    if ckpt_vocab_size < VOCAB_SIZE:
+        raise ValueError(
+            f"{ckpt_path} has vocab_size={ckpt_vocab_size}, but this repo's tokenizer "
+            f"is now {VOCAB_SIZE} (new special tokens were added since this checkpoint "
+            f"was made -- e.g. by a `git pull`/re-clone after training). This is fixable: "
+            f"upgrade the checkpoint in place with\n"
+            f"    python tools/resize_embeddings.py --in_ckpt {ckpt_path} --out_ckpt {ckpt_path}\n"
+            f"(safe to run again even if you've resized this checkpoint before -- it copies "
+            f"every existing row unchanged and only adds fresh rows for the new tokens), "
+            f"then retry."
+        )
+    raise ValueError(
+        f"{ckpt_path} has vocab_size={ckpt_vocab_size}, larger than this repo's current "
+        f"tokenizer vocab_size={VOCAB_SIZE}. This isn't fixable by resizing -- check you're "
+        f"pointing at the right checkpoint and that your local repo is up to date."
+    )

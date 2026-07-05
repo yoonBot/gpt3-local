@@ -21,7 +21,7 @@ import torch.nn.functional as F
 from configs import GPT3Config
 from model import GPT3
 from tools.calculator import CalcError, format_result, safe_eval
-from tools.tokenizer import CALC_CLOSE, CALC_OPEN, get_extended_tokenizer
+from tools.tokenizer import CALC_CLOSE, CALC_OPEN, check_vocab_or_raise, get_extended_tokenizer
 
 
 def get_args():
@@ -93,12 +93,7 @@ def main():
     model.eval()
 
     enc = get_extended_tokenizer()
-    if cfg.vocab_size != enc.n_vocab:
-        raise ValueError(
-            f"checkpoint vocab_size={cfg.vocab_size} doesn't match the extended "
-            f"tokenizer's vocab_size={enc.n_vocab} -- was this checkpoint fine-tuned "
-            f"with tools/prepare_calc_data.py + tools/resize_embeddings.py?"
-        )
+    check_vocab_or_raise(cfg.vocab_size, args.ckpt)
 
     ids = enc.encode(args.prompt, allowed_special="all")
     idx = torch.tensor(ids, dtype=torch.long, device=device)[None, ...]
