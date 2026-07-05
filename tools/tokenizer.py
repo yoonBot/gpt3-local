@@ -1,17 +1,28 @@
 """
-GPT-2 BPE tokenizer extended with two special tokens for calculator tool-use:
+GPT-2 BPE tokenizer extended with special tokens for two things:
 
-    <calc>  -- opens a literal arithmetic expression the model wants evaluated
-    </calc> -- closes it
+  - calculator tool-use:
+      <calc>  -- opens a literal arithmetic expression the model wants evaluated
+      </calc> -- closes it
+    A model can emit "<calc>47+89</calc>" during generation; whoever's
+    generating (generate_with_calc.py, chat/gradio_app.py) watches for the
+    closing tag, evaluates the expression for real (calculator.py), and
+    splices the true result back into the token stream instead of letting
+    the model guess it.
 
-A model trained/fine-tuned with this tokenizer can emit e.g.
-"<calc>47+89</calc>" during generation; generate_with_calc.py watches for
-the closing tag, evaluates the expression for real (see calculator.py), and
-splices the true result back into the token stream instead of letting the
-model guess it.
+  - chat turn-taking:
+      <|user|>      -- opens a user message
+      <|assistant|> -- opens the assistant's reply
+      <|end|>       -- closes either one
+    A generation loop stops at <|end|> instead of rambling on, and the chat
+    template (chat/format.py) uses these to mark whose turn is whose.
 
-vocab_size for this tokenizer is 50259 (GPT-2's 50257 + these 2 tokens),
-vs. plain GPT-2 BPE's 50257 used elsewhere in this repo. A model must be
+Both live in one shared vocab (rather than two separate extended
+tokenizers) so a single fine-tuned checkpoint can use the calculator from
+inside a chat conversation.
+
+vocab_size for this tokenizer is 50262 (GPT-2's 50257 + these 5 tokens), vs.
+plain GPT-2 BPE's 50257 used elsewhere in this repo. A model must be
 built/resized with the matching vocab_size -- see resize_embeddings.py to
 adapt a checkpoint already trained with the base 50257 tokenizer.
 """
@@ -20,17 +31,21 @@ import tiktoken
 
 CALC_OPEN = "<calc>"
 CALC_CLOSE = "</calc>"
+USER_TURN = "<|user|>"
+ASSISTANT_TURN = "<|assistant|>"
+END_TURN = "<|end|>"
 
-VOCAB_SIZE = 50257 + 2
+_NEW_SPECIAL_TOKENS = [CALC_OPEN, CALC_CLOSE, USER_TURN, ASSISTANT_TURN, END_TURN]
+VOCAB_SIZE = 50257 + len(_NEW_SPECIAL_TOKENS)
 
 
-def get_tool_tokenizer() -> tiktoken.Encoding:
+def get_extended_tokenizer() -> tiktoken.Encoding:
     base = tiktoken.get_encoding("gpt2")
     special_tokens = dict(base._special_tokens)
-    special_tokens[CALC_OPEN] = 50257
-    special_tokens[CALC_CLOSE] = 50258
+    for i, tok in enumerate(_NEW_SPECIAL_TOKENS):
+        special_tokens[tok] = 50257 + i
     return tiktoken.Encoding(
-        name="gpt2_calc",
+        name="gpt2_extended",
         pat_str=base._pat_str,
         mergeable_ranks=base._mergeable_ranks,
         special_tokens=special_tokens,

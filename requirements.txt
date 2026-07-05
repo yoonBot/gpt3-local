@@ -8,3 +8,6 @@ ipython
 
 # for rag/ (retrieval augmentation)
 sentence-transformers
+
+# for chat/ (chat web UI)
+gradio>=5

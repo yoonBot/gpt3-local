@@ -21,7 +21,7 @@ import torch.nn.functional as F
 from configs import GPT3Config
 from model import GPT3
 from tools.calculator import CalcError, format_result, safe_eval
-from tools.tokenizer import CALC_CLOSE, CALC_OPEN, get_tool_tokenizer
+from tools.tokenizer import CALC_CLOSE, CALC_OPEN, get_extended_tokenizer
 
 
 def get_args():
@@ -36,7 +36,12 @@ def get_args():
 
 
 @torch.no_grad()
-def generate_with_tools(model, enc, idx, max_new_tokens, temperature, top_k, device):
+def generate_with_tools(model, enc, idx, max_new_tokens, temperature, top_k, device, stop_token_id=None):
+    """Shared generation loop: intercepts <calc>...</calc> spans (evaluates
+    them for real and splices in the true result), and optionally stops
+    early at `stop_token_id` (used by chat/gradio_app.py to stop at <|end|>
+    instead of running to max_new_tokens on every reply).
+    """
     open_id = enc.encode(CALC_OPEN, allowed_special="all")[0]
     close_id = enc.encode(CALC_CLOSE, allowed_special="all")[0]
 
@@ -56,6 +61,9 @@ def generate_with_tools(model, enc, idx, max_new_tokens, temperature, top_k, dev
         probs = F.softmax(logits, dim=-1)
         next_id = torch.multinomial(probs, num_samples=1).item()
         tokens.append(next_id)
+
+        if stop_token_id is not None and next_id == stop_token_id:
+            break
 
         if next_id == open_id:
             calc_start = len(tokens)  # expression begins after this token
@@ -84,12 +92,12 @@ def main():
     model.to(device)
     model.eval()
 
-    enc = get_tool_tokenizer()
+    enc = get_extended_tokenizer()
     if cfg.vocab_size != enc.n_vocab:
         raise ValueError(
-            f"checkpoint vocab_size={cfg.vocab_size} doesn't match tool tokenizer "
-            f"vocab_size={enc.n_vocab} -- was this checkpoint fine-tuned with "
-            f"tools/prepare_calc_data.py + tools/resize_embeddings.py?"
+            f"checkpoint vocab_size={cfg.vocab_size} doesn't match the extended "
+            f"tokenizer's vocab_size={enc.n_vocab} -- was this checkpoint fine-tuned "
+            f"with tools/prepare_calc_data.py + tools/resize_embeddings.py?"
         )
 
     ids = enc.encode(args.prompt, allowed_special="all")

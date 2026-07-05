@@ -6,7 +6,7 @@ isn't "more arithmetic in the weights," it's learning to delegate to the
 calculator tool at inference time (see generate_with_calc.py).
 
 Produces data/calc/train.bin and data/calc/val.bin, tokenized with the
-extended tokenizer from tools/tokenizer.py (vocab_size=50259). Fine-tune a
+extended tokenizer from tools/tokenizer.py (vocab_size=50262). Fine-tune a
 model on this (optionally after first pretraining it on general text with
 tools/resize_embeddings.py to adapt an existing checkpoint's vocab) to teach
 the tool-use behavior.
@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 
 from tools.calculator import format_result, safe_eval
-from tools.tokenizer import CALC_CLOSE, CALC_OPEN, get_tool_tokenizer
+from tools.tokenizer import CALC_CLOSE, CALC_OPEN, get_extended_tokenizer
 
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "calc")
 
@@ -64,7 +64,7 @@ def main():
     args = p.parse_args()
 
     rng = random.Random(args.seed)
-    enc = get_tool_tokenizer()
+    enc = get_extended_tokenizer()
 
     os.makedirs(OUT_DIR, exist_ok=True)
     n_val = int(args.n_examples * args.val_fraction)

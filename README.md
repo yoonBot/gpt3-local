@@ -149,19 +149,19 @@ it for real (no `eval()`/`exec()` — `tools/calculator.py` walks a Python AST
 with a whitelist of numeric operators only), and splices the true result
 back into the output.
 
-This needs a model whose vocab includes the `<calc>`/`</calc>` tokens
-(`vocab_size=50259` vs. the base 50257) and that's seen examples of the
-behavior during training:
+This needs a model whose vocab includes the extended tokens
+(`vocab_size=50262` vs. the base 50257 — see `tools/tokenizer.py`) and
+that's seen examples of the behavior during training:
 
 ```bash
 # fine-tune from scratch with the extended vocab:
 python tools/prepare_calc_data.py --n_examples 200000
-python train.py --config gpt3-small --vocab_size 50259 --data_dir data/calc \
+python train.py --config gpt3-small --vocab_size 50262 --data_dir data/calc \
     --out_dir out_calc --max_iters 5000
 
 # OR adapt a checkpoint you already pretrained on general text:
 python tools/resize_embeddings.py --in_ckpt out/ckpt.pt --out_ckpt out/ckpt_tool.pt
-python train.py --config gpt3-small --vocab_size 50259 --data_dir data/calc \
+python train.py --config gpt3-small --vocab_size 50262 --data_dir data/calc \
     --out_dir out_calc --init_from_ckpt out/ckpt_tool.pt --max_iters 5000
 
 # generate with the calculator wired in:
@@ -172,6 +172,45 @@ python tools/generate_with_calc.py --ckpt out_calc/ckpt.pt \
 `--init_from_ckpt` loads model weights only (fresh optimizer/iter count) —
 use it for fine-tuning from an existing checkpoint, as opposed to `--resume`
 which continues an interrupted run of the *same* training job.
+
+## 6. Chat interface
+
+A raw next-token-prediction model doesn't inherently know how to hold a
+conversation — that turn-taking behavior needs to be taught with
+chat-formatted fine-tuning data, same as the calculator tool-use above (in
+fact it shares the same extended tokenizer and vocab, so one fine-tuned
+checkpoint can chat *and* use the calculator mid-conversation).
+
+```bash
+# 1. get chat data — either or both:
+python chat/prepare_chat_synthetic.py --n_examples 100000   # quick smoke test: greetings + arithmetic, no download
+python chat/prepare_chat_alpaca.py                            # real: ~52K Stanford Alpaca instruction examples
+
+# 2. fine-tune (same vocab-resize pattern as tool-use):
+python tools/resize_embeddings.py --in_ckpt out/ckpt.pt --out_ckpt out/ckpt_tool.pt
+python train.py --config gpt3-small --vocab_size 50262 --data_dir data/chat_alpaca \
+    --out_dir out_chat --init_from_ckpt out/ckpt_tool.pt --max_iters 5000
+
+# 3. launch the web chat UI:
+python chat/gradio_app.py --ckpt out_chat/ckpt.pt
+# with retrieval-augmented answers from a rag/build_index.py index:
+python chat/gradio_app.py --ckpt out_chat/ckpt.pt --rag_index_dir rag_index/
+# on Colab (no localhost access), get a public link instead:
+python chat/gradio_app.py --ckpt out_chat/ckpt.pt --share
+```
+
+`chat/format.py` defines the shared `<|user|>`/`<|assistant|>`/`<|end|>`
+template used by both the data prep scripts and `chat/gradio_app.py`, so
+they always agree on the exact same conversation format. Generation stops
+at `<|end|>` (via `tools/generate_with_calc.py`'s shared `generate_with_tools`
+loop, which also still intercepts `<calc>` tool calls mid-reply) instead of
+running to `--max_new_tokens` on every message.
+
+Caveat worth restating: `chat/prepare_chat_synthetic.py` alone only teaches
+turn-taking format and calculator delegation — a few hundred templated
+patterns, not real dialogue variety. For a model that's actually broadly
+conversational, use the Alpaca data (or your own dataset in the same
+format).
 
 ## Files
 
@@ -190,8 +229,16 @@ which continues an interrupted run of the *same* training job.
 - `data/prepare_openwebtext.py` — full-scale open pretraining corpus
 - `rag/chunk.py`, `rag/build_index.py`, `rag/retriever.py`,
   `rag/generate_with_rag.py` — retrieval-augmented generation
-- `tools/tokenizer.py` — GPT-2 BPE extended with `<calc>`/`</calc>` special tokens
+- `tools/tokenizer.py` — GPT-2 BPE extended with `<calc>`/`</calc>` and chat
+  turn (`<|user|>`/`<|assistant|>`/`<|end|>`) special tokens
 - `tools/calculator.py` — safe (no `eval()`) arithmetic expression evaluator
 - `tools/prepare_calc_data.py` — synthetic arithmetic fine-tuning data generator
-- `tools/resize_embeddings.py` — adapt a checkpoint's vocab to add the calc tokens
+- `tools/resize_embeddings.py` — adapt a checkpoint's vocab to the extended tokenizer
 - `tools/generate_with_calc.py` — generation loop that intercepts `<calc>` spans
+  and (optionally) stops at a given token id; shared by the CLI script and
+  `chat/gradio_app.py`
+- `chat/format.py` — the shared `<|user|>`/`<|assistant|>`/`<|end|>` chat template
+- `chat/prepare_chat_synthetic.py` — quick smoke-test chat data (greetings + arithmetic)
+- `chat/prepare_chat_alpaca.py` — real ~52K-example instruction-tuning dataset
+- `chat/gradio_app.py` — ChatGPT-style web chat UI, with optional RAG and
+  calculator tool-use wired in

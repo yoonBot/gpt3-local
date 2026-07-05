@@ -34,7 +34,7 @@ def get_args():
     p.add_argument("--data_dir", type=str, required=True, help="dir with train.bin/val.bin")
     p.add_argument("--out_dir", type=str, default="out")
     p.add_argument("--block_size", type=int, default=1024, help="context length (<= 2048 in the paper)")
-    p.add_argument("--vocab_size", type=int, default=None, help="override vocab size, e.g. 50259 for tools/tokenizer.py")
+    p.add_argument("--vocab_size", type=int, default=None, help="override vocab size, e.g. 50262 for tools/tokenizer.py's extended vocab")
 
     p.add_argument("--batch_size", type=int, default=8, help="micro-batch size per GPU")
     p.add_argument("--grad_accum_steps", type=int, default=8, help="gradient accumulation steps")

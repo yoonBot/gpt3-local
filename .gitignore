@@ -2,10 +2,12 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# generated/downloaded data and tokenized shards (regenerate via data/prepare_*.py, tools/prepare_calc_data.py)
+# generated/downloaded data and tokenized shards (regenerate via data/prepare_*.py, tools/prepare_calc_data.py, chat/prepare_chat_*.py)
 data/shakespeare/
 data/openwebtext/
 data/calc/
+data/chat_synthetic/
+data/chat_alpaca/
 
 # training outputs
 out*/
