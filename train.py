@@ -163,6 +163,23 @@ def main():
         # config comes from that checkpoint so shapes match the loaded weights.
         checkpoint = torch.load(args.init_from_ckpt, map_location=device, weights_only=True)
         cfg = GPT3Config(**checkpoint["config"])
+        if args.vocab_size is not None and args.vocab_size != cfg.vocab_size:
+            # cfg.vocab_size (the checkpoint's actual embedding table size)
+            # always wins over --vocab_size, since the model has to be built
+            # to match the weights being loaded -- but silently ignoring a
+            # mismatch here means training would only fail later, deep in
+            # an embedding lookup, once a token id from a newer/bigger
+            # tokenizer shows up in the data (e.g. a stale calculator-only
+            # checkpoint used to init a chat fine-tune). Fail loudly now.
+            raise ValueError(
+                f"--vocab_size {args.vocab_size} doesn't match {args.init_from_ckpt}'s "
+                f"vocab_size={cfg.vocab_size}. If this checkpoint predates a tokenizer "
+                f"change (e.g. new special tokens were added since it was made), resize it "
+                f"first:\n"
+                f"    python tools/resize_embeddings.py --in_ckpt {args.init_from_ckpt} "
+                f"--out_ckpt {args.init_from_ckpt}\n"
+                f"then retry."
+            )
         model = GPT3(cfg)
         model.load_state_dict(checkpoint["model"])
         if master_process:
