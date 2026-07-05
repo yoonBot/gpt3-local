@@ -37,12 +37,16 @@ can `--resume` — Colab wipes local disk and disconnects after ~90 min idle / ~
 
 ## 1. Prepare data
 
-Quick smoke test (a few MB, tokenizes in seconds):
+Quick smoke test (a few MB, tokenizes in seconds) — **only for verifying the
+pipeline runs**, not for a model with any real coherence or knowledge; ~300K
+tokens of Early Modern English isn't enough signal for either:
 ```bash
 python data/prepare_shakespeare.py
 ```
 
-Real pretraining corpus (OpenWebText, ~9B tokens, requires real time/disk):
+Real pretraining corpus (OpenWebText, ~9B tokens, requires real time/disk) —
+**use this** if you want output that's actually coherent modern English with
+some general knowledge, not just a working pipeline:
 ```bash
 python data/prepare_openwebtext.py
 ```
@@ -56,6 +60,16 @@ its own subdirectory under `data/`.
 python train.py --config gpt3-small --data_dir data/shakespeare --block_size 512 \
     --batch_size 12 --grad_accum_steps 4 --max_iters 5000
 ```
+
+`--max_iters 5000` above is a quick-test value (pairs with the Shakespeare
+smoke-test data) — it will run, but won't produce coherent output. Getting
+real quality needs both the real corpus above *and* far more iterations;
+even small GPT-style models typically need tens of thousands of iterations
+minimum on real data before output is reliably coherent, and GPT-2-level
+quality took nanoGPT ~600K iterations. Budget accordingly for your
+hardware/time, use `--resume` to continue across multiple sessions, and
+expect a single consumer GPU or Colab session to get you meaningfully
+further than the smoke-test default, not all the way to that bar.
 
 Multi-GPU (DDP) on one node:
 ```bash
