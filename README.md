@@ -186,10 +186,18 @@ checkpoint can chat *and* use the calculator mid-conversation).
 python chat/prepare_chat_synthetic.py --n_examples 100000   # quick smoke test: greetings + arithmetic, no download
 python chat/prepare_chat_alpaca.py                            # real: ~52K Stanford Alpaca instruction examples
 
-# 2. fine-tune (same vocab-resize pattern as tool-use):
+# 2. fine-tune. Two starting points, pick one:
+
+# (a) haven't done tool-use fine-tuning yet -- resize the base checkpoint first:
 python tools/resize_embeddings.py --in_ckpt out/ckpt.pt --out_ckpt out/ckpt_tool.pt
 python train.py --config gpt3-small --vocab_size 50262 --data_dir data/chat_alpaca \
     --out_dir out_chat --init_from_ckpt out/ckpt_tool.pt --max_iters 5000
+
+# (b) already have a calculator-tuned checkpoint (out_calc/ckpt.pt) -- build on it directly,
+#     no resize needed (it already has the extended vocab), so the chat model keeps the
+#     calculator behavior instead of re-learning it from a second cold fine-tune:
+python train.py --config gpt3-small --vocab_size 50262 --data_dir data/chat_alpaca \
+    --out_dir out_chat --init_from_ckpt out_calc/ckpt.pt --max_iters 5000
 
 # 3. launch the web chat UI:
 python chat/gradio_app.py --ckpt out_chat/ckpt.pt
