@@ -69,7 +69,12 @@ minimum on real data before output is reliably coherent, and GPT-2-level
 quality took nanoGPT ~600K iterations. Budget accordingly for your
 hardware/time, use `--resume` to continue across multiple sessions, and
 expect a single consumer GPU or Colab session to get you meaningfully
-further than the smoke-test default, not all the way to that bar.
+further than the smoke-test default, not all the way to that bar. For
+real training:
+```bash
+python train.py --config gpt3-small --data_dir data/openwebtext --block_size 512 \
+    --batch_size 12 --grad_accum_steps 4 --max_iters 50000
+```
 
 Multi-GPU (DDP) on one node:
 ```bash
@@ -77,9 +82,9 @@ torchrun --standalone --nproc_per_node=4 train.py \
     --config gpt3-medium --data_dir data/openwebtext
 ```
 
-Resume from the last checkpoint:
+Resume from the last checkpoint (same `--data_dir`/`--out_dir` as whichever run you're continuing):
 ```bash
-python train.py --config gpt3-small --data_dir data/shakespeare --resume
+python train.py --config gpt3-small --data_dir data/openwebtext --resume
 ```
 
 ### Choosing a config for a single consumer GPU (8-24GB)
