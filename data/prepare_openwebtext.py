@@ -2,6 +2,15 @@
 Real pretraining dataset: OpenWebText (an open reproduction of the WebText
 corpus GPT-2/GPT-3 were originally trained on), tokenized with GPT-2 BPE.
 
+Uses the "Skylion007/openwebtext" mirror rather than the canonical
+"openwebtext" repo on the Hub -- the canonical one is a legacy,
+non-namespaced, loading-script-based dataset, and recent huggingface_hub
+versions raise `HfUriError: Repository id must be 'namespace/name'` trying
+to resolve it (a real incompatibility, not a transient error -- retrying
+or waiting doesn't help). Skylion007's mirror is the same corpus, hosted
+as plain parquet files under a proper namespaced repo, which sidesteps
+that entirely.
+
 Requires: pip install datasets tiktoken tqdm
 Produces data/openwebtext/train.bin and data/openwebtext/val.bin.
 
@@ -29,7 +38,7 @@ def tokenize(example):
 
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
-    dataset = load_dataset("openwebtext", num_proc=NUM_PROC)
+    dataset = load_dataset("Skylion007/openwebtext", num_proc=NUM_PROC)
 
     split_dataset = dataset["train"].train_test_split(
         test_size=0.0005, seed=2357, shuffle=True
